@@ -16,12 +16,13 @@ def create_cc_persons():
 
 def create_weekly_kplus(kplus, padding_value):
     sunday_id_hash = {sunday: i for i, sunday in enumerate(
-        kplus.groupby('sunday', sort=True).groups.keys())}
+        kplus.dropna().groupby('sunday', sort=True).groups.keys())}
     max_len = len(sunday_id_hash)
 
     def create_sequence(group, padding_value):
-        origin = sunday_id_hash[group.iloc[0]['sunday']]
+        
         if not group.isna().values.any():
+            origin = sunday_id_hash[group.iloc[0]['sunday']]
             seq = group[['kp_txn_amt', 'kp_txn_count']].to_numpy()
             pre_padding = np.ones((origin, 2), dtype=np.float32) * padding_value
             post_padding = np.ones((max_len - origin - len(seq), 2), dtype=np.float32) * padding_value
@@ -47,7 +48,21 @@ def create_credit_seq(cc_persons, padding_value):
         xs.append(seq)
     xs = np.asarray(xs)
     return xs
+#%%
+def create_daily_kplus(kplus, padding_value):
+    start_timestamp = pd.Timestamp('2018-01-01')
+    end_timestamp = pd.Timestamp('2018-06-30')
 
+    max_len = (end_timestamp - start_timestamp).days + 1
+    xs = []
+    for _, group in kplus.groupby('id'):
+        seq = np.ones((max_len, 2), dtype=np.float32) * padding_value
+        if not group.isna().values.any():
+            sunday_indexes = group.apply(lambda row: (pd.Timestamp(row['sunday']) - start_timestamp).days, axis=1).to_numpy(int)
+            seq[sunday_indexes] = group[['kp_txn_amt', 'kp_txn_count']].to_numpy()
+        xs.append(seq)
+    xs = np.asarray(xs)
+    return xs
 # %%
 print('load data gen')
 
