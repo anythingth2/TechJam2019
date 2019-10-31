@@ -1,6 +1,7 @@
 # %%
 import pandas as pd
 import numpy as np
+from keras.utils import to_categorical
 # %%
 def create_cc_persons():
     demograpgics = pd.read_csv('datasets/exam-1/demographics.csv')
@@ -13,7 +14,12 @@ def create_cc_persons():
     origin_timestamp = pd.Timestamp(cc['pos_dt'].min())
     cc_persons['pos_dt_index'] = cc_persons.apply(lambda row: (pd.Timestamp(row['pos_dt']) - origin_timestamp).days, axis=1)
     cc_persons.to_csv('datasets/exam-1/cc_persons.csv')
-
+def create_raw_demographic():
+    demographics = pd.read_csv('datasets/exam-1/demographics.csv')
+    raw_demograhgics = demographics.drop('cc_no', axis=1).drop_duplicates()
+    raw_demograhgics['ocp_cd'][raw_demograhgics['ocp_cd'].isna()] = 0
+    raw_demograhgics.set_index('id', inplace=True)
+    raw_demograhgics.to_csv('datasets/exam-1/raw_demograhgics.csv')
 def create_weekly_kplus(kplus, padding_value):
     sunday_id_hash = {sunday: i for i, sunday in enumerate(
         kplus.dropna().groupby('sunday', sort=True).groups.keys())}
@@ -63,6 +69,14 @@ def create_daily_kplus(kplus, padding_value):
         xs.append(seq)
     xs = np.asarray(xs)
     return xs
+
+def create_demographic_data(raw_demographic):
+    def convert_demographic_onehot(person):
+        gender = to_categorical(person['gender'] -1, 2)
+        age = to_categorical(person['age'] - 2, 5)
+        ocp_cd = to_categorical(person['ocp_cd'], 14)
+        return np.concatenate((gender, age, ocp_cd), axis=0)
+    return raw_demographic.apply(lambda person: convert_demographic_onehot(person) , axis=1)
 # %%
 print('load data gen')
 
