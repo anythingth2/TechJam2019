@@ -76,7 +76,8 @@ def create_demographic_data(raw_demographic):
         age = to_categorical(person['age'] - 2, 5)
         ocp_cd = to_categorical(person['ocp_cd'], 14)
         return np.concatenate((gender, age, ocp_cd), axis=0)
-    return raw_demographic.apply(lambda person: convert_demographic_onehot(person) , axis=1)
+    return np.array([convert_demographic_onehot(person) for _, person in raw_demographic.iterrows()])
+
 # %%
 print('load data gen')
 
