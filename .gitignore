@@ -1,5 +1,5 @@
 .DS_Store
 .idea
 .ipynb_checkpoints
-logs
+
 __pycache__
