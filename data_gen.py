@@ -75,7 +75,8 @@ def create_weekly_credit(cc_weekly, padding_value):
     for _id, group in cc_weekly.groupby('id'):
         seq = empty_seq.copy()
         if not group.isna().values.any():
-            seq[group['pos_week_index'].astype(np.int)] = group[['cc_txn_amt', 'count']]
+            seq[group['pos_week_index'].astype(np.int)] = group[[
+                'cc_txn_amt', 'count']]
         seqs.append(seq)
     seqs = np.asarray(seqs)
     return seqs
@@ -99,14 +100,30 @@ def create_daily_kplus(kplus, padding_value):
     return xs
 
 
+def convert_demographic_onehot(person):
+    gender = to_categorical(person['gender'] - 1, 2)
+    age = to_categorical(person['age'] - 2, 5)
+    ocp_cd = to_categorical(person['ocp_cd'], 14)
+    return np.concatenate((gender, age, ocp_cd), axis=0)
+
+
 def create_demographic_data(raw_demographic):
-    def convert_demographic_onehot(person):
-        gender = to_categorical(person['gender'] - 1, 2)
-        age = to_categorical(person['age'] - 2, 5)
-        ocp_cd = to_categorical(person['ocp_cd'], 14)
-        return np.concatenate((gender, age, ocp_cd), axis=0)
     return np.array([convert_demographic_onehot(person) for _, person in raw_demographic.iterrows()])
 
 
 # %%
-print('load data gen')
+def ensemble_ocp_demo_datagen(raw_demographics,  batch_size=32, abuntant_ratio=0.6):
+    demographics = raw_demographics.set_index('ocp_cd')
+
+    abuntant_ocp = [3, 9]
+    rare_ocp = [1, 2, 4, 5, 6, 7, 8, 11, 12, 13]
+
+    abuntant_demo = demographics.loc[abuntant_ocp]
+    rare_demo = demographics.loc[rare_ocp]
+    while True:
+        n_abuntant_sample = int(batch_size*abuntant_ratio)
+        demo = abuntant_demo.sample(n_abuntant_sample).append(
+            rare_demo.sample(batch_size - n_abuntant_sample))
+        demo = demo.sample(frac=1).reset_index()
+        yield create_demographic_data(demo), demo['income'].to_numpy()
+#%%

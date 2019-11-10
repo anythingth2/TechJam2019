@@ -4,11 +4,14 @@ from keras.callbacks import Callback
 
 class EvaluateSMAPE(Callback):
     def __init__(self, xs, ys_true, name, scaler_y=None, use_SMAPE_loss=False):
-        self.scaler_y = scaler_y
-        self.xs = xs
-        self.ys_true = np.squeeze(scaler_y.inverse_transform(ys_true))
-        self.name = name
         self.use_SMAPE_loss = use_SMAPE_loss
+        self.name = name
+        if not use_SMAPE_loss:
+            self.scaler_y = scaler_y
+            self.xs = xs
+            self.ys_true = np.squeeze(scaler_y.inverse_transform(ys_true))
+            
+        
 
     def on_epoch_end(self, epoch, logs=None):
         if self.use_SMAPE_loss:
