@@ -2,6 +2,8 @@
 import pandas as pd
 import numpy as np
 from keras.utils import to_categorical
+import scipy.stats as st
+
 # %%
 
 
@@ -28,14 +30,14 @@ def create_raw_demographic():
 
 
 def create_weekly_kplus(kplus, padding_value):
-    sunday_id_hash = {sunday: i for i, sunday in enumerate(
-        kplus.dropna().groupby('sunday', sort=True).groups.keys())}
-    max_len = len(sunday_id_hash)
-
+    # sunday_id_hash = {sunday: i for i, sunday in enumerate(
+    #     kplus.dropna().groupby('sunday', sort=True).groups.keys())}
+    # max_len = len(sunday_id_hash)
+    max_len = 25
     def create_sequence(group, padding_value):
 
         if not group.isna().values.any():
-            origin = sunday_id_hash[group.iloc[0]['sunday']]
+            origin = pd.Timestamp(group.iloc[0]['sunday']).week - 1
             seq = group[['kp_txn_amt', 'kp_txn_count']].to_numpy()
             pre_padding = np.ones(
                 (origin, 2), dtype=np.float32) * padding_value
@@ -80,7 +82,6 @@ def create_weekly_credit(cc_weekly, padding_value):
         seqs.append(seq)
     seqs = np.asarray(seqs)
     return seqs
-# %%
 
 
 def create_daily_kplus(kplus, padding_value):
@@ -126,4 +127,48 @@ def ensemble_ocp_demo_datagen(raw_demographics,  batch_size=32, abuntant_ratio=0
             rare_demo.sample(batch_size - n_abuntant_sample))
         demo = demo.sample(frac=1).reset_index()
         yield create_demographic_data(demo), demo['income'].to_numpy()
-#%%
+
+
+
+def deimbalance_income_ids_generater(train_set, batch_size, abuntant_batch_ratio=0.6, percentile=0.2):
+    train_set = train_set.copy()
+    train_set['z'] = (train_set['income'] -
+                      train_set['income'].mean()) / train_set['income'].std()
+    abuntant_ids = train_set[(train_set['z'] >= st.norm.ppf(
+        percentile)) & (train_set['z'] <= st.norm.ppf(1 - percentile))]['id'].to_numpy()
+    rare_ids = train_set[(train_set['z'] < st.norm.ppf(
+        percentile)) | (train_set['z'] > st.norm.ppf(1-percentile))]['id'].to_numpy()
+    n_abuntant = int(batch_size*abuntant_batch_ratio)
+    while True:
+        ids = np.random.choice(abuntant_ids, n_abuntant, replace=False).tolist(
+        ) + np.random.choice(rare_ids, batch_size-n_abuntant, replace=False).tolist()
+        np.random.shuffle(ids)
+        yield ids
+
+
+
+def create_transaction_xs(kplus, cc_weekly, kplus_padding, cc_weekly_padding):
+    kplus_xs = create_weekly_kplus(kplus, kplus_padding)
+    gap_padding = np.ones((len(kplus_xs), 1, 2),
+                          dtype=np.float32) * kplus_padding
+    kplus_xs = np.concatenate((gap_padding, kplus_xs,), axis=1)
+    cc_xs = create_weekly_credit(cc_weekly, cc_weekly_padding)
+    xs = np.concatenate((kplus_xs, cc_xs), axis=2)
+    return xs
+
+
+def deimbalance_transaction_datagen(kplus, cc_weekly, train_set,
+                                    kplus_padding, cc_weekly_padding,
+                                    batch_size=32, abuntant_batch_ratio=0.6, percentile=0.2):
+    ids_gen = deimbalance_income_ids_generater(
+        train_set, batch_size, abuntant_batch_ratio, percentile)
+
+    kplus = kplus.set_index('id')
+    cc_weekly = cc_weekly.set_index('id')
+    train_set = train_set.set_index('id')
+    while True:
+        ids = next(ids_gen)
+        xs = create_transaction_xs(
+            kplus.loc[ids], cc_weekly.loc[ids], kplus_padding, cc_weekly_padding)
+        ys = train_set.loc[ids]['income'].to_numpy()
+        yield xs, ys
