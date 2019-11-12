@@ -21,13 +21,13 @@ def create_cc_persons():
     cc_persons.to_csv('datasets/exam-1/cc_persons.csv')
 
 
-def create_raw_demographic():
-    demographics = pd.read_csv('datasets/exam-1/demographics.csv')
+def create_raw_demographic(demographics):
+    # demographics = pd.read_csv('datasets/exam-1/demographics.csv')
     raw_demograhgics = demographics.drop('cc_no', axis=1).drop_duplicates()
     raw_demograhgics['ocp_cd'][raw_demograhgics['ocp_cd'].isna()] = 0
     raw_demograhgics.set_index('id', inplace=True)
     raw_demograhgics.to_csv('datasets/exam-1/raw_demograhgics.csv')
-
+    return raw_demograhgics
 
 def create_weekly_kplus(kplus, padding_value):
     # sunday_id_hash = {sunday: i for i, sunday in enumerate(
@@ -104,7 +104,10 @@ def create_daily_kplus(kplus, padding_value):
 def convert_demographic_onehot(person):
     gender = to_categorical(person['gender'] - 1, 2)
     age = to_categorical(person['age'] - 2, 5)
-    ocp_cd = to_categorical(person['ocp_cd'], 14)
+    if not np.isnan(person['ocp_cd']):
+        ocp_cd = to_categorical(person['ocp_cd'], 14)
+    else:
+        ocp_cd = to_categorical(0, 14)
     return np.concatenate((gender, age, ocp_cd), axis=0)
 
 
@@ -129,9 +132,8 @@ def ensemble_ocp_demo_datagen(raw_demographics,  batch_size=32, abuntant_ratio=0
         yield create_demographic_data(demo), demo['income'].to_numpy()
 
 
-
 def deimbalance_income_ids_generater(train_set, batch_size, abuntant_batch_ratio=0.6, percentile=0.2):
-    train_set = train_set.copy()
+    train_set = train_set.reset_index().copy()
     train_set['z'] = (train_set['income'] -
                       train_set['income'].mean()) / train_set['income'].std()
     abuntant_ids = train_set[(train_set['z'] >= st.norm.ppf(
@@ -144,7 +146,6 @@ def deimbalance_income_ids_generater(train_set, batch_size, abuntant_batch_ratio
         ) + np.random.choice(rare_ids, batch_size-n_abuntant, replace=False).tolist()
         np.random.shuffle(ids)
         yield ids
-
 
 
 def create_transaction_xs(kplus, cc_weekly, kplus_padding, cc_weekly_padding):
@@ -162,13 +163,31 @@ def deimbalance_transaction_datagen(kplus, cc_weekly, train_set,
                                     batch_size=32, abuntant_batch_ratio=0.6, percentile=0.2):
     ids_gen = deimbalance_income_ids_generater(
         train_set, batch_size, abuntant_batch_ratio, percentile)
-
-    kplus = kplus.set_index('id')
-    cc_weekly = cc_weekly.set_index('id')
-    train_set = train_set.set_index('id')
+    if kplus.index.name != 'id':
+        kplus = kplus.set_index('id')
+    if cc_weekly.index.name != 'id':
+        cc_weekly = cc_weekly.set_index('id')
+    if train_set.index.name != 'id':
+        train_set = train_set.set_index('id')
     while True:
         ids = next(ids_gen)
         xs = create_transaction_xs(
             kplus.loc[ids], cc_weekly.loc[ids], kplus_padding, cc_weekly_padding)
         ys = train_set.loc[ids]['income'].to_numpy()
         yield xs, ys
+
+
+def create_cc_weekly(cc, demo):
+    cc_weekly = pd.merge(cc, demo[['id', 'cc_no']], on='cc_no')
+
+    cc_weekly.drop('cc_no', axis=1, inplace=True)
+
+    cc_weekly.sort_values(['id', 'pos_dt'], inplace=True)
+
+    cc_weekly['count'] = 1
+
+    cc_weekly['pos_week_index'] = cc_weekly.apply(
+        lambda row: pd.Timestamp(row['pos_dt']).week-1, axis=1)
+
+    cc_weekly = cc_weekly.groupby(['id', 'pos_week_index']).sum().reset_index()
+    return cc_weekly
